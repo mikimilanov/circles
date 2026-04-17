@@ -2,15 +2,26 @@
 <html lang="he">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#dcdcdc" />
   <title>Target Task - 64 Trials Fixed</title>
   <style>
     html, body {
       margin: 0;
+      padding: 0;
+      width: 100%;
       height: 100%;
       background: #dcdcdc;
       font-family: Arial, sans-serif;
       overflow: hidden;
+      overscroll-behavior: none;
+      touch-action: manipulation;
+    }
+    body {
+      position: fixed;
+      inset: 0;
     }
     canvas {
       display: block;
@@ -18,24 +29,12 @@
       height: 100vh;
       cursor: pointer;
     }
-    .hint {
-      position: fixed;
-      left: 16px;
-      bottom: 16px;
-      background: rgba(255,255,255,0.92);
-      border: 1px solid #d0d0d0;
-      border-radius: 10px;
-      padding: 8px 10px;
-      font-size: 13px;
-      color: #444;
-      z-index: 20;
-    }
     .toolbar-trigger {
       position: fixed;
       top: 0;
       left: 0;
       right: 0;
-      height: 28px;
+      height: max(28px, env(safe-area-inset-top));
       z-index: 30;
       background: transparent;
     }
@@ -51,7 +50,7 @@
       border-bottom-left-radius: 12px;
       border-bottom-right-radius: 12px;
       box-shadow: 0 10px 30px rgba(0,0,0,0.12);
-      padding: 10px 12px;
+      padding: calc(10px + env(safe-area-inset-top)) 12px 10px 12px;
       display: flex;
       gap: 8px;
       align-items: center;
@@ -94,7 +93,6 @@
   </div>
 
   <canvas id="c"></canvas>
-  <div class="hint">לחיצה על העכבר או כל מקש במקלדת = מטרה הבאה</div>
 
   <script>
     const canvas = document.getElementById('c');
@@ -106,7 +104,7 @@
 
     const ANGLES = [-75,-65,-55,-45,-35,-25,-15,-5,5,15,25,35,45,55,65,75];
     const RADII = [21,27,33,39];
-    const TOTAL_TRIALS = 64; // one balanced block only
+    const TOTAL_TRIALS = 64;
 
     let block = [];
     let trialIndex = 0;
@@ -142,12 +140,24 @@
       if (!toolbar.matches(':hover') && !toolbarTrigger.matches(':hover')) hideToolbar();
     }
 
+    function getViewportWidth() {
+      return window.visualViewport ? window.visualViewport.width : window.innerWidth;
+    }
+
+    function getViewportHeight() {
+      return window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    }
+
     function resizeCanvas() {
+      const vw = getViewportWidth();
+      const vh = getViewportHeight();
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.floor(window.innerWidth * dpr);
-      canvas.height = Math.floor(window.innerHeight * dpr);
-      canvas.style.width = window.innerWidth + 'px';
-      canvas.style.height = window.innerHeight + 'px';
+
+      canvas.width = Math.floor(vw * dpr);
+      canvas.height = Math.floor(vh * dpr);
+      canvas.style.width = vw + 'px';
+      canvas.style.height = vh + 'px';
+
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       drawCurrent();
     }
@@ -172,15 +182,15 @@
     }
 
     function getBoard() {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
+      const w = getViewportWidth();
+      const h = getViewportHeight();
 
       const board = {
-        x: w * 0.16,
-        y: h * 0.15,
-        width: w * 0.68,
-        height: h * 0.74,
-        radius: 18
+        x: w * 0.06,
+        y: h * 0.08,
+        width: w * 0.88,
+        height: h * 0.84,
+        radius: 20
       };
 
       const origin = {
@@ -188,10 +198,7 @@
         y: board.y + board.height * 0.92
       };
 
-      // Radii are measured from the home position (origin).
-      // "Relative to the surface" means we convert 21/27/33/39 into pixels
-      // using the white board size, not the full browser window.
-      const usableTopPadding = board.height * 0.08;
+      const usableTopPadding = board.height * 0.07;
       const maxRadiusPx = origin.y - (board.y + usableTopPadding);
       const maxHorizontalPx = (board.width / 2) * 0.92;
       const constrainedMaxRadiusPx = Math.min(
@@ -200,7 +207,7 @@
       );
 
       const pxPerUnit = constrainedMaxRadiusPx / 39;
-      const targetRadiusPx = Math.max(10, Math.min(board.width, board.height) * 0.012);
+      const targetRadiusPx = Math.max(14, Math.min(board.width, board.height) * 0.016);
 
       return { board, origin, pxPerUnit, targetRadiusPx };
     }
@@ -216,15 +223,15 @@
 
     function drawFinishedScreen() {
       const { board } = getBoard();
-      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      ctx.clearRect(0, 0, getViewportWidth(), getViewportHeight());
       drawBoard(board);
       ctx.fillStyle = '#2f2f2f';
       ctx.font = '28px Arial';
       ctx.textAlign = 'center';
-      ctx.fillText('הניסוי הסתיים', window.innerWidth / 2, window.innerHeight / 2 - 10);
+      ctx.fillText('הניסוי הסתיים', getViewportWidth() / 2, getViewportHeight() / 2 - 10);
       ctx.font = '18px Arial';
       ctx.fillStyle = '#666';
-      ctx.fillText('64 ניסיונות הושלמו', window.innerWidth / 2, window.innerHeight / 2 + 24);
+      ctx.fillText('64 ניסיונות הושלמו', getViewportWidth() / 2, getViewportHeight() / 2 + 24);
     }
 
     function drawTarget(target) {
@@ -235,7 +242,7 @@
 
       const { board, origin, pxPerUnit, targetRadiusPx } = getBoard();
 
-      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      ctx.clearRect(0, 0, getViewportWidth(), getViewportHeight());
       drawBoard(board);
 
       const theta = target.angle * Math.PI / 180;
@@ -246,7 +253,7 @@
 
       ctx.beginPath();
       ctx.arc(x, y, targetRadiusPx, 0, Math.PI * 2);
-      ctx.fillStyle = '#2e9f48'; // green target
+      ctx.fillStyle = '#2e9f48';
       ctx.fill();
 
       if (showHome) {
@@ -370,6 +377,11 @@
     document.getElementById('clearBtn').addEventListener('click', resetTask);
 
     window.addEventListener('resize', resizeCanvas);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', resizeCanvas);
+      window.visualViewport.addEventListener('scroll', resizeCanvas);
+    }
+
     window.addEventListener('keydown', (e) => {
       if (toolbar.matches(':hover')) return;
       e.preventDefault();
