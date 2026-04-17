@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="he">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Target Task - 64 Trials Fixed</title>
+  <style>
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #dcdcdc;
+      font-family: Arial, sans-serif;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      cursor: pointer;
+    }
+    .hint {
+      position: fixed;
+      left: 16px;
+      bottom: 16px;
+      background: rgba(255,255,255,0.92);
+      border: 1px solid #d0d0d0;
+      border-radius: 10px;
+      padding: 8px 10px;
+      font-size: 13px;
+      color: #444;
+      z-index: 20;
+    }
+    .toolbar-trigger {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 28px;
+      z-index: 30;
+      background: transparent;
+    }
+    .toolbar {
+      position: fixed;
+      top: 0;
+      left: 50%;
+      transform: translate(-50%, -110%);
+      transition: transform 180ms ease;
+      background: rgba(255,255,255,0.97);
+      border: 1px solid #d0d0d0;
+      border-top: none;
+      border-bottom-left-radius: 12px;
+      border-bottom-right-radius: 12px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.12);
+      padding: 10px 12px;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      z-index: 40;
+      direction: rtl;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+    .toolbar.visible {
+      transform: translate(-50%, 0);
+    }
+    .toolbar button {
+      border: 1px solid #cfcfcf;
+      background: #fff;
+      border-radius: 10px;
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .toolbar button:hover {
+      background: #f5f5f5;
+    }
+    .toolbar .meta {
+      font-size: 12px;
+      color: #666;
+      margin-inline-start: 8px;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+  <div id="toolbarTrigger" class="toolbar-trigger"></div>
+  <div id="toolbar" class="toolbar" aria-hidden="true">
+    <button id="nextBtn">מטרה הבאה</button>
+    <button id="toggleHomeBtn">הסתר נקודת בית</button>
+    <button id="jsonBtn">ייצוא JSON</button>
+    <button id="csvBtn">ייצוא CSV</button>
+    <button id="clearBtn">איפוס</button>
+    <span id="meta" class="meta">0 / 64</span>
+  </div>
+
+  <canvas id="c"></canvas>
+  <div class="hint">לחיצה על העכבר או כל מקש במקלדת = מטרה הבאה</div>
+
+  <script>
+    const canvas = document.getElementById('c');
+    const ctx = canvas.getContext('2d');
+    const toolbar = document.getElementById('toolbar');
+    const toolbarTrigger = document.getElementById('toolbarTrigger');
+    const meta = document.getElementById('meta');
+    const toggleHomeBtn = document.getElementById('toggleHomeBtn');
+
+    const ANGLES = [-75,-65,-55,-45,-35,-25,-15,-5,5,15,25,35,45,55,65,75];
+    const RADII = [21,27,33,39];
+    const TOTAL_TRIALS = 64; // one balanced block only
+
+    let block = [];
+    let trialIndex = 0;
+    let logs = [];
+    let currentTarget = null;
+    let finished = false;
+    let showHome = true;
+
+    function updateMeta() {
+      meta.textContent = `${logs.length} / ${TOTAL_TRIALS}`;
+    }
+
+    function showToolbar() {
+      toolbar.classList.add('visible');
+      toolbar.setAttribute('aria-hidden', 'false');
+    }
+
+    function hideToolbar() {
+      toolbar.classList.remove('visible');
+      toolbar.setAttribute('aria-hidden', 'true');
+    }
+
+    toolbarTrigger.addEventListener('mouseenter', showToolbar);
+    toolbar.addEventListener('mouseenter', showToolbar);
+    toolbarTrigger.addEventListener('mouseleave', () => setTimeout(checkToolbarHide, 60));
+    toolbar.addEventListener('mouseleave', () => setTimeout(checkToolbarHide, 60));
+
+    document.addEventListener('mousemove', (e) => {
+      if (e.clientY <= 18) showToolbar();
+    });
+
+    function checkToolbarHide() {
+      if (!toolbar.matches(':hover') && !toolbarTrigger.matches(':hover')) hideToolbar();
+    }
+
+    function resizeCanvas() {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.floor(window.innerWidth * dpr);
+      canvas.height = Math.floor(window.innerHeight * dpr);
+      canvas.style.width = window.innerWidth + 'px';
+      canvas.style.height = window.innerHeight + 'px';
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      drawCurrent();
+    }
+
+    function shuffle(arr) {
+      const a = [...arr];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
+    function buildBalancedBlock() {
+      const items = [];
+      for (const angle of ANGLES) {
+        for (const radius of RADII) {
+          items.push({ angle, radiusUnits: radius });
+        }
+      }
+      return shuffle(items);
+    }
+
+    function getBoard() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      const board = {
+        x: w * 0.16,
+        y: h * 0.15,
+        width: w * 0.68,
+        height: h * 0.74,
+        radius: 18
+      };
+
+      const origin = {
+        x: board.x + board.width / 2,
+        y: board.y + board.height * 0.92
+      };
+
+      // Radii are measured from the home position (origin).
+      // "Relative to the surface" means we convert 21/27/33/39 into pixels
+      // using the white board size, not the full browser window.
+      const usableTopPadding = board.height * 0.08;
+      const maxRadiusPx = origin.y - (board.y + usableTopPadding);
+      const maxHorizontalPx = (board.width / 2) * 0.92;
+      const constrainedMaxRadiusPx = Math.min(
+        maxRadiusPx,
+        maxHorizontalPx / Math.sin(75 * Math.PI / 180)
+      );
+
+      const pxPerUnit = constrainedMaxRadiusPx / 39;
+      const targetRadiusPx = Math.max(10, Math.min(board.width, board.height) * 0.012);
+
+      return { board, origin, pxPerUnit, targetRadiusPx };
+    }
+
+    function drawBoard(board) {
+      ctx.fillStyle = '#f6f6f6';
+      ctx.strokeStyle = '#d7d7d7';
+      ctx.lineWidth = 2;
+      roundRect(ctx, board.x, board.y, board.width, board.height, board.radius);
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    function drawFinishedScreen() {
+      const { board } = getBoard();
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      drawBoard(board);
+      ctx.fillStyle = '#2f2f2f';
+      ctx.font = '28px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText('הניסוי הסתיים', window.innerWidth / 2, window.innerHeight / 2 - 10);
+      ctx.font = '18px Arial';
+      ctx.fillStyle = '#666';
+      ctx.fillText('64 ניסיונות הושלמו', window.innerWidth / 2, window.innerHeight / 2 + 24);
+    }
+
+    function drawTarget(target) {
+      if (finished) {
+        drawFinishedScreen();
+        return;
+      }
+
+      const { board, origin, pxPerUnit, targetRadiusPx } = getBoard();
+
+      ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+      drawBoard(board);
+
+      const theta = target.angle * Math.PI / 180;
+      const rPx = target.radiusUnits * pxPerUnit;
+
+      const x = origin.x + rPx * Math.sin(theta);
+      const y = origin.y - rPx * Math.cos(theta);
+
+      ctx.beginPath();
+      ctx.arc(x, y, targetRadiusPx, 0, Math.PI * 2);
+      ctx.fillStyle = '#2e9f48'; // green target
+      ctx.fill();
+
+      if (showHome) {
+        ctx.beginPath();
+        ctx.arc(origin.x, origin.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = '#9aa0a6';
+        ctx.fill();
+      }
+
+      currentTarget = {
+        trial: logs.length + 1,
+        block: 1,
+        blockTrial: trialIndex + 1,
+        angle: target.angle,
+        radiusUnits: target.radiusUnits,
+        radiusPx: Number(rPx.toFixed(2)),
+        x: Number(x.toFixed(2)),
+        y: Number(y.toFixed(2)),
+        targetSizePx: Number(targetRadiusPx.toFixed(2)),
+        shownAtISO: new Date().toISOString(),
+        shownAtMs: Date.now(),
+        homeVisible: showHome
+      };
+    }
+
+    function drawCurrent() {
+      if (finished) {
+        drawFinishedScreen();
+        return;
+      }
+      if (!block.length) {
+        block = buildBalancedBlock();
+        trialIndex = 0;
+      }
+      drawTarget(block[trialIndex]);
+    }
+
+    function nextTarget() {
+      if (finished) return;
+
+      if (currentTarget) {
+        logs.push(currentTarget);
+        updateMeta();
+      }
+
+      if (logs.length >= TOTAL_TRIALS) {
+        finished = true;
+        currentTarget = null;
+        drawFinishedScreen();
+        return;
+      }
+
+      trialIndex++;
+      drawTarget(block[trialIndex]);
+    }
+
+    function downloadText(filename, text, type) {
+      const blob = new Blob([text], { type });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    }
+
+    function exportJSON() {
+      const payload = {
+        exportedAtISO: new Date().toISOString(),
+        trialCount: logs.length,
+        totalTrialsConfigured: TOTAL_TRIALS,
+        angles: ANGLES,
+        radii: RADII,
+        logs
+      };
+      downloadText('target_task_logs.json', JSON.stringify(payload, null, 2), 'application/json');
+    }
+
+    function exportCSV() {
+      const headers = ['trial','block','blockTrial','angle','radiusUnits','radiusPx','x','y','targetSizePx','shownAtISO','shownAtMs','homeVisible'];
+      const rows = logs.map(row => headers.map(h => row[h]));
+      const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+      downloadText('target_task_logs.csv', csv, 'text/csv;charset=utf-8;');
+    }
+
+    function resetTask() {
+      block = buildBalancedBlock();
+      trialIndex = 0;
+      logs = [];
+      currentTarget = null;
+      finished = false;
+      updateMeta();
+      drawCurrent();
+    }
+
+    function roundRect(ctx, x, y, width, height, radius) {
+      ctx.beginPath();
+      ctx.moveTo(x + radius, y);
+      ctx.lineTo(x + width - radius, y);
+      ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+      ctx.lineTo(x + width, y + height - radius);
+      ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      ctx.lineTo(x + radius, y + height);
+      ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+      ctx.lineTo(x, y + radius);
+      ctx.quadraticCurveTo(x, y, x + radius, y);
+      ctx.closePath();
+    }
+
+    toggleHomeBtn.addEventListener('click', () => {
+      showHome = !showHome;
+      toggleHomeBtn.textContent = showHome ? 'הסתר נקודת בית' : 'הצג נקודת בית';
+      drawCurrent();
+    });
+
+    document.getElementById('nextBtn').addEventListener('click', nextTarget);
+    document.getElementById('jsonBtn').addEventListener('click', exportJSON);
+    document.getElementById('csvBtn').addEventListener('click', exportCSV);
+    document.getElementById('clearBtn').addEventListener('click', resetTask);
+
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('keydown', (e) => {
+      if (toolbar.matches(':hover')) return;
+      e.preventDefault();
+      nextTarget();
+    });
+    canvas.addEventListener('pointerdown', nextTarget);
+
+    block = buildBalancedBlock();
+    updateMeta();
+    resizeCanvas();
+  </script>
+</body>
+</html>
