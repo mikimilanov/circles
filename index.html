@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#dcdcdc" />
-  <title>Target Task - Weighted Angles + Heights</title>
+  <title>Target Task - Fixed Counts 54</title>
   <style>
     html, body {
       margin: 0;
@@ -19,10 +19,7 @@
       overscroll-behavior: none;
       touch-action: manipulation;
     }
-    body {
-      position: fixed;
-      inset: 0;
-    }
+    body { position: fixed; inset: 0; }
     canvas {
       display: block;
       width: 100vw;
@@ -31,9 +28,7 @@
     }
     .toolbar-trigger {
       position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
+      top: 0; left: 0; right: 0;
       height: max(28px, env(safe-area-inset-top));
       z-index: 30;
       background: transparent;
@@ -59,9 +54,7 @@
       flex-wrap: wrap;
       justify-content: center;
     }
-    .toolbar.visible {
-      transform: translate(-50%, 0);
-    }
+    .toolbar.visible { transform: translate(-50%, 0); }
     .toolbar button {
       border: 1px solid #cfcfcf;
       background: #fff;
@@ -70,9 +63,7 @@
       font-size: 13px;
       cursor: pointer;
     }
-    .toolbar button:hover {
-      background: #f5f5f5;
-    }
+    .toolbar button:hover { background: #f5f5f5; }
     .toolbar .meta {
       font-size: 12px;
       color: #666;
@@ -89,7 +80,7 @@
     <button id="jsonBtn">ייצוא JSON</button>
     <button id="csvBtn">ייצוא CSV</button>
     <button id="clearBtn">איפוס</button>
-    <span id="meta" class="meta">0 / 64</span>
+    <span id="meta" class="meta">0 / 54</span>
   </div>
 
   <canvas id="c"></canvas>
@@ -103,10 +94,26 @@
     const toggleHomeBtn = document.getElementById('toggleHomeBtn');
 
     const ANGLES = [-32, -16, -8, -4, 0, 4, 8, 16, 32];
-    const ANGLE_WEIGHTS = [2.782, 7.975, 13.214, 16.264, 19.473, 16.264, 13.214, 7.975, 2.782];
 
-    const HEIGHTS = ['eye', 'chest'];
-    const HEIGHT_WEIGHTS = [40, 60];
+    // Fixed counts adjusted to sum exactly to 54 while staying as close as possible
+    // to the requested weights:
+    // 2.782, 7.975, 13.214, 16.264, 19.473, 16.264, 13.214, 7.975, 2.782
+    const ANGLE_TARGET_COUNTS = {
+      "-32": 2,
+      "-16": 4,
+      "-8": 7,
+      "-4": 9,
+      "0": 10,
+      "4": 9,
+      "8": 7,
+      "16": 4,
+      "32": 2
+    };
+
+    const HEIGHT_TARGET_COUNTS = {
+      eye: 22,
+      chest: 32
+    };
 
     const TOTAL_TRIALS = 54;
 
@@ -114,6 +121,8 @@
     let currentTarget = null;
     let finished = false;
     let showHome = true;
+    let targetsList = [];
+    let currentIndex = 0;
 
     function updateMeta() {
       meta.textContent = `${logs.length} / ${TOTAL_TRIALS}`;
@@ -164,21 +173,36 @@
       drawCurrent();
     }
 
-    function weightedChoice(values, weights) {
-      const total = weights.reduce((a, b) => a + b, 0);
-      let r = Math.random() * total;
-      for (let i = 0; i < values.length; i++) {
-        r -= weights[i];
-        if (r <= 0) return values[i];
+    function shuffle(array) {
+      const a = [...array];
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
       }
-      return values[values.length - 1];
+      return a;
     }
 
-    function sampleTarget() {
-      return {
-        angle: weightedChoice(ANGLES, ANGLE_WEIGHTS),
-        height: weightedChoice(HEIGHTS, HEIGHT_WEIGHTS)
-      };
+    function generateTargets() {
+      const targets = [];
+
+      for (const [angle, count] of Object.entries(ANGLE_TARGET_COUNTS)) {
+        for (let i = 0; i < count; i++) {
+          targets.push({ angle: Number(angle) });
+        }
+      }
+
+      const heights = [
+        ...Array(HEIGHT_TARGET_COUNTS.eye).fill('eye'),
+        ...Array(HEIGHT_TARGET_COUNTS.chest).fill('chest')
+      ];
+
+      const shuffledHeights = shuffle(heights);
+
+      for (let i = 0; i < targets.length; i++) {
+        targets[i].height = shuffledHeights[i];
+      }
+
+      return shuffle(targets);
     }
 
     function getBoard() {
@@ -275,10 +299,10 @@
         drawFinishedScreen();
         return;
       }
-      if (!currentTarget) {
-        drawTarget(sampleTarget());
-      } else {
+      if (currentTarget) {
         drawTarget(currentTarget);
+      } else if (targetsList.length > 0 && currentIndex < targetsList.length) {
+        drawTarget(targetsList[currentIndex]);
       }
     }
 
@@ -290,14 +314,15 @@
         updateMeta();
       }
 
-      if (logs.length >= TOTAL_TRIALS) {
+      if (logs.length >= TOTAL_TRIALS || currentIndex >= targetsList.length - 1) {
         finished = true;
         currentTarget = null;
         drawFinishedScreen();
         return;
       }
 
-      drawTarget(sampleTarget());
+      currentIndex += 1;
+      drawTarget(targetsList[currentIndex]);
     }
 
     function downloadText(filename, text, type) {
@@ -318,9 +343,8 @@
         trialCount: logs.length,
         totalTrialsConfigured: TOTAL_TRIALS,
         angles: ANGLES,
-        angleWeights: ANGLE_WEIGHTS,
-        heights: HEIGHTS,
-        heightWeights: HEIGHT_WEIGHTS,
+        angleTargetCounts: ANGLE_TARGET_COUNTS,
+        heightTargetCounts: HEIGHT_TARGET_COUNTS,
         logs
       };
       downloadText('target_task_logs.json', JSON.stringify(payload, null, 2), 'application/json');
@@ -337,8 +361,10 @@
       logs = [];
       currentTarget = null;
       finished = false;
+      currentIndex = 0;
+      targetsList = generateTargets();
       updateMeta();
-      drawTarget(sampleTarget());
+      drawTarget(targetsList[currentIndex]);
     }
 
     function roundRect(ctx, x, y, width, height, radius) {
@@ -362,8 +388,8 @@
         drawFinishedScreen();
       } else if (currentTarget) {
         drawTarget(currentTarget);
-      } else {
-        drawTarget(sampleTarget());
+      } else if (targetsList.length > 0) {
+        drawTarget(targetsList[currentIndex]);
       }
     });
 
@@ -386,7 +412,8 @@
     canvas.addEventListener('pointerdown', nextTarget);
 
     updateMeta();
-    drawTarget(sampleTarget());
+    targetsList = generateTargets();
+    drawTarget(targetsList[currentIndex]);
     resizeCanvas();
   </script>
 </body>
