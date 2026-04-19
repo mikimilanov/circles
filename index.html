@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#dcdcdc" />
-  <title>Target Task - 64 Trials Fixed</title>
+  <title>Target Task - Weighted Angles + Heights</title>
   <style>
     html, body {
       margin: 0;
@@ -102,12 +102,14 @@
     const meta = document.getElementById('meta');
     const toggleHomeBtn = document.getElementById('toggleHomeBtn');
 
-    const ANGLES = [-75,-65,-55,-45,-35,-25,-15,-5,5,15,25,35,45,55,65,75];
-    const RADII = [21,27,33,39];
-    const TOTAL_TRIALS = 64;
+    const ANGLES = [-32, -16, -8, -4, 0, 4, 8, 16, 32];
+    const ANGLE_WEIGHTS = [2.782, 7.975, 13.214, 16.264, 19.473, 16.264, 13.214, 7.975, 2.782];
 
-    let block = [];
-    let trialIndex = 0;
+    const HEIGHTS = ['eye', 'chest'];
+    const HEIGHT_WEIGHTS = [40, 60];
+
+    const TOTAL_TRIALS = 54;
+
     let logs = [];
     let currentTarget = null;
     let finished = false;
@@ -162,23 +164,21 @@
       drawCurrent();
     }
 
-    function shuffle(arr) {
-      const a = [...arr];
-      for (let i = a.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [a[i], a[j]] = [a[j], a[i]];
+    function weightedChoice(values, weights) {
+      const total = weights.reduce((a, b) => a + b, 0);
+      let r = Math.random() * total;
+      for (let i = 0; i < values.length; i++) {
+        r -= weights[i];
+        if (r <= 0) return values[i];
       }
-      return a;
+      return values[values.length - 1];
     }
 
-    function buildBalancedBlock() {
-      const items = [];
-      for (const angle of ANGLES) {
-        for (const radius of RADII) {
-          items.push({ angle, radiusUnits: radius });
-        }
-      }
-      return shuffle(items);
+    function sampleTarget() {
+      return {
+        angle: weightedChoice(ANGLES, ANGLE_WEIGHTS),
+        height: weightedChoice(HEIGHTS, HEIGHT_WEIGHTS)
+      };
     }
 
     function getBoard() {
@@ -198,18 +198,15 @@
         y: board.y + board.height * 0.92
       };
 
-      const usableTopPadding = board.height * 0.07;
-      const maxRadiusPx = origin.y - (board.y + usableTopPadding);
-      const maxHorizontalPx = (board.width / 2) * 0.92;
-      const constrainedMaxRadiusPx = Math.min(
-        maxRadiusPx,
-        maxHorizontalPx / Math.sin(75 * Math.PI / 180)
-      );
+      const eyeY = board.y + board.height * 0.28;
+      const chestY = board.y + board.height * 0.56;
 
-      const pxPerUnit = constrainedMaxRadiusPx / 39;
+      const maxHorizontalPx = (board.width / 2) * 0.88;
+      const pxPerDegree = maxHorizontalPx / 32;
+
       const targetRadiusPx = Math.max(14, Math.min(board.width, board.height) * 0.016);
 
-      return { board, origin, pxPerUnit, targetRadiusPx };
+      return { board, origin, eyeY, chestY, pxPerDegree, targetRadiusPx };
     }
 
     function drawBoard(board) {
@@ -231,7 +228,7 @@
       ctx.fillText('הניסוי הסתיים', getViewportWidth() / 2, getViewportHeight() / 2 - 10);
       ctx.font = '18px Arial';
       ctx.fillStyle = '#666';
-      ctx.fillText('64 ניסיונות הושלמו', getViewportWidth() / 2, getViewportHeight() / 2 + 24);
+      ctx.fillText(`${TOTAL_TRIALS} ניסיונות הושלמו`, getViewportWidth() / 2, getViewportHeight() / 2 + 24);
     }
 
     function drawTarget(target) {
@@ -240,16 +237,13 @@
         return;
       }
 
-      const { board, origin, pxPerUnit, targetRadiusPx } = getBoard();
+      const { board, origin, eyeY, chestY, pxPerDegree, targetRadiusPx } = getBoard();
 
       ctx.clearRect(0, 0, getViewportWidth(), getViewportHeight());
       drawBoard(board);
 
-      const theta = target.angle * Math.PI / 180;
-      const rPx = target.radiusUnits * pxPerUnit;
-
-      const x = origin.x + rPx * Math.sin(theta);
-      const y = origin.y - rPx * Math.cos(theta);
+      const x = origin.x + target.angle * pxPerDegree;
+      const y = target.height === 'eye' ? eyeY : chestY;
 
       ctx.beginPath();
       ctx.arc(x, y, targetRadiusPx, 0, Math.PI * 2);
@@ -265,11 +259,8 @@
 
       currentTarget = {
         trial: logs.length + 1,
-        block: 1,
-        blockTrial: trialIndex + 1,
         angle: target.angle,
-        radiusUnits: target.radiusUnits,
-        radiusPx: Number(rPx.toFixed(2)),
+        height: target.height,
         x: Number(x.toFixed(2)),
         y: Number(y.toFixed(2)),
         targetSizePx: Number(targetRadiusPx.toFixed(2)),
@@ -284,11 +275,11 @@
         drawFinishedScreen();
         return;
       }
-      if (!block.length) {
-        block = buildBalancedBlock();
-        trialIndex = 0;
+      if (!currentTarget) {
+        drawTarget(sampleTarget());
+      } else {
+        drawTarget(currentTarget);
       }
-      drawTarget(block[trialIndex]);
     }
 
     function nextTarget() {
@@ -306,8 +297,7 @@
         return;
       }
 
-      trialIndex++;
-      drawTarget(block[trialIndex]);
+      drawTarget(sampleTarget());
     }
 
     function downloadText(filename, text, type) {
@@ -328,27 +318,27 @@
         trialCount: logs.length,
         totalTrialsConfigured: TOTAL_TRIALS,
         angles: ANGLES,
-        radii: RADII,
+        angleWeights: ANGLE_WEIGHTS,
+        heights: HEIGHTS,
+        heightWeights: HEIGHT_WEIGHTS,
         logs
       };
       downloadText('target_task_logs.json', JSON.stringify(payload, null, 2), 'application/json');
     }
 
     function exportCSV() {
-      const headers = ['trial','block','blockTrial','angle','radiusUnits','radiusPx','x','y','targetSizePx','shownAtISO','shownAtMs','homeVisible'];
+      const headers = ['trial','angle','height','x','y','targetSizePx','shownAtISO','shownAtMs','homeVisible'];
       const rows = logs.map(row => headers.map(h => row[h]));
       const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
       downloadText('target_task_logs.csv', csv, 'text/csv;charset=utf-8;');
     }
 
     function resetTask() {
-      block = buildBalancedBlock();
-      trialIndex = 0;
       logs = [];
       currentTarget = null;
       finished = false;
       updateMeta();
-      drawCurrent();
+      drawTarget(sampleTarget());
     }
 
     function roundRect(ctx, x, y, width, height, radius) {
@@ -368,7 +358,13 @@
     toggleHomeBtn.addEventListener('click', () => {
       showHome = !showHome;
       toggleHomeBtn.textContent = showHome ? 'הסתר נקודת בית' : 'הצג נקודת בית';
-      drawCurrent();
+      if (finished) {
+        drawFinishedScreen();
+      } else if (currentTarget) {
+        drawTarget(currentTarget);
+      } else {
+        drawTarget(sampleTarget());
+      }
     });
 
     document.getElementById('nextBtn').addEventListener('click', nextTarget);
@@ -389,8 +385,8 @@
     });
     canvas.addEventListener('pointerdown', nextTarget);
 
-    block = buildBalancedBlock();
     updateMeta();
+    drawTarget(sampleTarget());
     resizeCanvas();
   </script>
 </body>
